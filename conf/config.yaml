@@ -1,0 +1,32 @@
+note: ""
+dry_run: False
+
+seed: 42
+device: cuda
+
+dataset_name: cifar10
+num_tasks: 2
+batch_size: 32
+data_root_dir: "/mnt/d/task/research/codes/MultiSource/wsl/2/multi-source/data/"
+
+
+# Place where all logs & cache go 
+hydra:
+  run:
+    # dir: ${workdir}/${data.dataset}/${memo}
+    # dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    # dir: outputs/${data.dataset}/${now:%Y-%m-%d}/${now:%H-%M-%S}-${hydra.job.override_dirname}
+    # dir: outputs/${dataset_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}=${note}
+    dir: outputs/${dataset_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}：${hydra.job.override_dirname}
+  # output_subdir: .hydra-${seed}
+  job:
+    chdir: True
+    config:
+      override_dirname:
+        exclude_keys:
+          - log_interval_inner
+          - eval_interval
+
+defaults:
+  - _self_
+  - learning: default

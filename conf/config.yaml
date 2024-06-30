@@ -10,7 +10,7 @@ num_classes: 10
 task_emb_dim: 8
 batch_size: 32
 data_root_dir: "/mnt/d/task/research/codes/MultiSource/wsl/2/multi-source/data/"
-
+beta: 0.2
 
 # Place where all logs & cache go 
 hydra:

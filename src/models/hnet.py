@@ -19,10 +19,16 @@ def get_hnet_model(args:Namespace, mnet:nn.Module):
     #         temb_std=temb_std).to(device)
     
     # mnet_shape = [param.shape for param in mnet.parameters()]
-    mnet_shape = [
-        param.shape
+    # mnet_shape = [
+    #     param.shape
+    #     for name, param in mnet.named_parameters()
+    # ]
+
+    mnet_shape = {
+        name: param.shape
         for name, param in mnet.named_parameters()
-    ]
+    }
+
     # state_dict()
     # https://stackoverflow.com/questions/54746829/pytorch-whats-the-difference-between-state-dict-and-parameters
     # state_dict  contains not just the call to parameters but also buffers, etc.
@@ -39,26 +45,35 @@ class MLP(torch.nn.Module):
         self.output_shape = output_shape
 
         _layers = [task_emb_dim] + layers
-        self.fc_list = [
+        self.fc_list = nn.Sequential(*[
                 nn.Linear(_layers[i], _layers[i+1]) 
              for i in range(len(_layers)-1)
-            ]
+            ])
 
-        self.output_layers = [
-            torch.nn.Linear(_layers[-1], np.prod(dims))
-            for dims in output_shape
-        ]
+        # self.output_layers = nn.ModuleList([
+        #     torch.nn.Linear(_layers[-1], np.prod(dims))
+        #     for dims in output_shape
+        # ])
+        self.output_layers = nn.ModuleDict({
+            key.replace(".", "_"): torch.nn.Linear(_layers[-1], np.prod(dims))
+            for key, dims in output_shape.items()
+        })
 
 
     def forward(self, task_emb):
-        # x = F.relu(self.fc_list(task_emb))
-        x = task_emb.unsqueeze(0)
-        for fc_layer in self.fc_list:
-            x = fc_layer(x)
+        x = F.relu(self.fc_list(task_emb))
+        # x = task_emb.unsqueeze(0)
+        # for fc_layer in self.fc_list:
+        #     x = fc_layer(x)
 
-        outputs = []
-        for layer, dims in zip(self.output_layers, self.output_shape):
-            res = layer(x).view(*dims)
-            outputs.append(res)
+        # outputs = []
+        # for layer, dims in zip(self.output_layers, self.output_shape):
+        #     res = layer(x).view(*dims)
+        #     outputs.append(res)
+
+        outputs = {
+            key: self.output_layers[key.replace(".", "_")](x).view(*dims) 
+            for key, dims in self.output_shape.items()
+        }
 
         return outputs

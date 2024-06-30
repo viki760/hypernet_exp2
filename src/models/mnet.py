@@ -14,16 +14,36 @@ def get_mnet_model(args):
 
     _original_forward_func = resnet_model.forward
     def _forward_func_with_outsoucing_weights(inputs, weights):
+        # when `weights` is a list
+        # with torch.no_grad():
+        #     for weight, param in zip(weights, resnet_model.parameters()):
+        #         param.data = weight
+        #         param.grad_fn = weight.grad_fn
+
+                # param.copy_(weight)
+                # param = nn.Parameter(weight)
+
+        # still not copy grad_fn
+        # state_dict = self.state_dict()
+        # for key, value in weights.items():
+        #     state_dict[key] = value
+        # self.load_state_dict(state_dict)
+
         with torch.no_grad():
-            for weight, param in zip(weights, resnet_model.parameters()):
+            param_dict = resnet_model.named_parameters()
+            for key, value in weights.items():
+                weight = weights[key]
+                param = param_dict[key]
+                
                 param.data = weight
+                param.grad_fn = weight.grad_fn
+
+        
         return _original_forward_func(inputs)
 
     resnet_model.forward = _forward_func_with_outsoucing_weights
 
-    resnet_model.to(device)
-
-    mnet = resnet_model
+    mnet = resnet_model.to(device)
 
     # mnet =  get_mnet_model(config, net_type, in_shape, out_shape, device,
     #                               no_weights=no_weights)

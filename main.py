@@ -107,6 +107,8 @@ def train(args, task_id, dataloader, task_embs, mnet, hnet):
     # ### Start training ###
     # ######################
     prev_hnet = deepcopy(hnet)
+    prev_hnet.eval()
+
     task_criterion = nn.CrossEntropyLoss()
 
     hnet_optimizer = optim.SGD(hnet.parameters())
@@ -125,69 +127,52 @@ def train(args, task_id, dataloader, task_embs, mnet, hnet):
 
 
             # get delta_theta (candidate update)
-            current_emb = task_embs[task_id].detach()
-            trial_hnet = deepcopy(hnet)
+            current_emb = task_embs[task_id]
+            with torch.no_grad():
+                # trial_hnet = deepcopy(hnet)
+                trial_hnet = hnet
+            trial_hnet.train()
             trial_hnet_optimizer = optim.SGD(trial_hnet.parameters())
+
+            trial_hnet_optimizer.zero_grad()
+
             trial_weights = trial_hnet(current_emb)
             trial_Y_hat_logits = mnet(images, weights=trial_weights) 
 
             trial_loss_task = task_criterion(trial_Y_hat_logits, labels)
+            trial_loss_task.retain_grad()
             trial_loss_task.backward()
 
             trial_hnet_optimizer.step()
 
-            #!!!!!!!!!!!!!!!!!!!!!!! TODO!!!!!!!!!!!!!!!!!!!
+
             # compute reg loss
-            hnet.eval()
             loss_reg = 0
             
+            trial_hnet_optimizer.zero_grad()
             for i in range(task_id):
                 weights_i_prev = prev_hnet(task_embs[i])
 
-                weights_i = hnet(task_embs[i])
+                weights_i = trial_hnet(task_embs[i])
                 loss_reg += (weights_i - weights_i_prev).pow(2).sum()
 
-
-            # compute task loss
-            hnet.train()
-
+            # update hnet
             hnet_optimizer.zero_grad()
 
             weights = hnet(task_embs[task_id])
             Y_hat_logits = mnet(images, weights=weights)
             loss_task = task_criterion(Y_hat_logits, labels)
 
-            beta = args.cfg.beta if args.cfg.beta is not None else 0.2
+            loss = loss_task + args.cfg.beta * loss_reg
+            loss.retain_grad()
+            loss.backward(retain_graph=True)
 
-            loss = loss_task + beta * loss_reg
-            loss.backward()
-            # The current task embedding only depends in the task loss, so we can
-            # update it already.
+            for param, trial_param in zip(hnet.parameters(), trial_hnet.parameters()):
+                param.grad += trial_param.grad
 
             hnet_optimizer.step()
-
-        #     dTheta = opstep.calc_delta_theta(theta_optimizer, False,
-        #         lr=config.lr, detach_dt=not config.backprop_dt)
-
-        #     if config.continue_emb_training:
-        #         dTembs = dTheta[-task_id:]
-        #         dTheta = dTheta[:-task_id]
-        #     else:
-        #         dTembs = None
-
-        #     loss_reg = hreg.calc_fix_target_reg(hnet, task_id,
-        #         targets=targets_hypernet, dTheta=dTheta, dTembs=dTembs,
-        #         mnet=mnet, inds_of_out_heads=regged_outputs,
-        #         prev_theta=prev_theta, prev_task_embs=prev_task_embs,
-        #         batch_size=config.cl_reg_batch_size)
-
-        #     # Now that we computed the regularizer, we can use the accumulated
-        #     # gradients and update the hnet (or mnet) parameters.
-        #     theta_optimizer.step()
-
-        #     Y_hat = F.softmax(Y_hat_logits, dim=1)
-        #     classifier_accuracy = Classifier.accuracy(Y_hat, T) * 100.0
-
+            break
+        break
 
     #     #########################
     #     # Learning rate scheduler
@@ -195,8 +180,6 @@ def train(args, task_id, dataloader, task_embs, mnet, hnet):
     #     ###########################
     #     ### Tensorboard summary ###
     #     ###########################
-    #         break
-    #     break
 
 
 def run(args: Namespace):

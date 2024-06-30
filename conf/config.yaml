@@ -6,6 +6,8 @@ device: cuda
 
 dataset_name: cifar10
 num_tasks: 2
+num_classes: 10
+task_emb_dim: 8
 batch_size: 32
 data_root_dir: "/mnt/d/task/research/codes/MultiSource/wsl/2/multi-source/data/"
 

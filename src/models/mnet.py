@@ -1,26 +1,26 @@
 import torchvision
 import torch.nn as nn
+import torch
 
 def get_mnet_model(args):
-    num_outputs = 10
+    num_outputs = args.cfg.num_classes
     device = args.cfg.device
 
     # if config.cl_scenario == 1 or config.cl_scenario == 3:
     #     num_outputs *= config.num_tasks
-
-
-    in_shape = [32, 32, 3]
-    out_shape = [num_outputs]
-
-    # mnet = ResNet(
-    #     in_shape=in_shape, 
-    #     num_classes=out_shape[0],
-    # ).to(device)
-
     
-    resnet_model = torchvision.models.resnet18(pretrained=True)
-    num_ftrs = resnet_model.fc.in_features
-    resnet_model.fc = nn.Linear(num_ftrs, num_outputs)
+    resnet_model = torchvision.models.resnet18(pretrained=False)
+    resnet_model.fc = nn.Linear(resnet_model.fc.in_features, num_outputs)
+
+    _original_forward_func = resnet_model.forward
+    def _forward_func_with_outsoucing_weights(inputs, weights):
+        with torch.no_grad():
+            for weight, param in zip(weights, resnet_model.parameters()):
+                param.data = weight
+        return _original_forward_func(inputs)
+
+    resnet_model.forward = _forward_func_with_outsoucing_weights
+
     resnet_model.to(device)
 
     mnet = resnet_model
@@ -30,7 +30,11 @@ def get_mnet_model(args):
 
     # init_network_weights(mnet.weights, config, logger, net=mnet)
 
+    nn.init.xavier_uniform_
+    
     return mnet
+
+
 
 
 # def get_mnet_model(config, net_type, in_shape, out_shape, device

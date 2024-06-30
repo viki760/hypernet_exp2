@@ -27,33 +27,44 @@ def get_hnet_model(args:Namespace, mnet:nn.Module):
     #         noise_dim=hnet_noise_dim,
     #         temb_std=temb_std).to(device)
     
-    model = MLP()
+    # mnet_shape = [param.shape for param in mnet.parameters()]
+    mnet_shape = [
+        param.shape
+        for name, param in mnet.named_parameters()
+    ]
+    # state_dict()
+    # https://stackoverflow.com/questions/54746829/pytorch-whats-the-difference-between-state-dict-and-parameters
+    # state_dict  contains not just the call to parameters but also buffers, etc.
+
+    model = MLP(output_shape=mnet_shape, task_emb_dim=args.cfg.task_emb_dim, layers=[2, 3])
     # .to(device)
 
     return model
 
 
 class MLP(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, output_shape, task_emb_dim, layers=[50, 100]):
         super(MLP,self).__init__()
-        self.fc1 = torch.nn.Linear(task_emb_dim, 50)
-        self.fc2 = torch.nn.Linear(50,100)
+
+        self.output_shape = output_shape
+
+        _layers = [task_emb_dim] + layers
+        self.fc_list = nn.ModuleList(
+            [
+                nn.Linear(_layers[i], _layers[i+1]) 
+             for i in range(len(_layers)-1)
+            ]
+        )
 
         self.output_layers = [
             torch.nn.Linear(100, np.prod(dims))
-            for dims in target_param_shape
+            for dims in output_shape
         ]
 
-        # self._task_embs = nn.ParameterList()
-        # for _ in range(num_tasks):
-        #     self._task_embs.append(nn.Parameter(data=torch.Tensor(te_dim),
-        #                                         requires_grad=True))
-        #     torch.nn.init.normal_(self._task_embs[-1], mean=0., std=1.)
 
 
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
+    def forward(self, task_emb):
+        x = F.relu(self.fc_list(task_emb))
 
         outputs = []
         for layer, dims in zip(self.output_layers, target_param_shape):

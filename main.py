@@ -76,7 +76,7 @@ class LightningTransformer(L.LightningModule):
 
 
 
-def train(dataloader, mnet, hnet):
+def train(task_id, dataloader, task_embs, mnet, hnet):
     pass
 
     # param = hnet.parameters()
@@ -113,50 +113,52 @@ def train(dataloader, mnet, hnet):
             print(labels.shape)
             print(labels.unique())
 
+            # break
+
+            weights = hnet(task_embs[task_id])
+            Y_hat_logits = mnet(images, weights=weights)
+            print(Y_hat_logits.shape)
             break
 
-            weights = hnet.forward(task_id=task_id)
-            Y_hat_logits = mnet.forward(X, weights, **mnet_kwargs)
+        # # if config.soft_targets:
 
-        # if config.soft_targets:
+        #     task_criterion = nn.CrossEntropyLoss()
 
-            task_criteria = nn.CrossEntropyLoss()
+        #     loss_task = task_criterion(Y_hat_logits, labels)
 
-            loss_task = task_criteria(Y_hat_logits, labels)
-
-            loss_task.backward(retain_graph=calc_reg, create_graph=calc_reg and \
-                           config.backprop_dt)
+        #     loss_task.backward(retain_graph=calc_reg, create_graph=calc_reg and \
+        #                    config.backprop_dt)
                 
-            # The current task embedding only depends in the task loss, so we can
-            # update it already.
-            if emb_optimizer is not None:
-                emb_optimizer.step()
+        #     # The current task embedding only depends in the task loss, so we can
+        #     # update it already.
+        #     if emb_optimizer is not None:
+        #         emb_optimizer.step()
 
-            dTheta = opstep.calc_delta_theta(theta_optimizer, False,
-                lr=config.lr, detach_dt=not config.backprop_dt)
+        #     dTheta = opstep.calc_delta_theta(theta_optimizer, False,
+        #         lr=config.lr, detach_dt=not config.backprop_dt)
 
-            if config.continue_emb_training:
-                dTembs = dTheta[-task_id:]
-                dTheta = dTheta[:-task_id]
-            else:
-                dTembs = None
+        #     if config.continue_emb_training:
+        #         dTembs = dTheta[-task_id:]
+        #         dTheta = dTheta[:-task_id]
+        #     else:
+        #         dTembs = None
 
-            loss_reg = hreg.calc_fix_target_reg(hnet, task_id,
-                targets=targets_hypernet, dTheta=dTheta, dTembs=dTembs,
-                mnet=mnet, inds_of_out_heads=regged_outputs,
-                prev_theta=prev_theta, prev_task_embs=prev_task_embs,
-                batch_size=config.cl_reg_batch_size)
+        #     loss_reg = hreg.calc_fix_target_reg(hnet, task_id,
+        #         targets=targets_hypernet, dTheta=dTheta, dTembs=dTembs,
+        #         mnet=mnet, inds_of_out_heads=regged_outputs,
+        #         prev_theta=prev_theta, prev_task_embs=prev_task_embs,
+        #         batch_size=config.cl_reg_batch_size)
 
-            loss_reg *= config.beta
+        #     loss_reg *= config.beta
 
-            loss_reg.backward()
+        #     loss_reg.backward()
 
-            # Now that we computed the regularizer, we can use the accumulated
-            # gradients and update the hnet (or mnet) parameters.
-            theta_optimizer.step()
+        #     # Now that we computed the regularizer, we can use the accumulated
+        #     # gradients and update the hnet (or mnet) parameters.
+        #     theta_optimizer.step()
 
-            Y_hat = F.softmax(Y_hat_logits, dim=1)
-            classifier_accuracy = Classifier.accuracy(Y_hat, T) * 100.0
+        #     Y_hat = F.softmax(Y_hat_logits, dim=1)
+        #     classifier_accuracy = Classifier.accuracy(Y_hat, T) * 100.0
 
 
     #     #########################
@@ -178,14 +180,13 @@ def run(args: Namespace):
 
     logger.info(f"data list len: {len(data_module_list)}") 
 
-    mnet = None
-    hnet = None
-
     mnet = get_mnet_model(args)
-    # print(mnet)
     hnet = get_hnet_model(args, mnet)
 
+    task_embs = [torch.randn(args.cfg.task_emb_dim, requires_grad=True) for _ in range(args.cfg.num_tasks)]
 
+    for idx in range(len(task_embs)):
+        torch.nn.init.normal_(task_embs[idx], mean=0., std=1.)
 
     for i in range(args.cfg.num_tasks):
         # print(data_modules[i].prepare_data())
@@ -198,7 +199,13 @@ def run(args: Namespace):
         #     last_emb = hnet.get_task_emb(j-1).detach().clone()
         #     hnet.get_task_emb(j).data = last_emb
 
-        train(dm.train_dataloader(), mnet, hnet)
+        train(
+            task_id=i,
+            dataloader=dm.train_dataloader(),
+            task_embs=task_embs,
+            mnet=mnet,
+            hnet=hnet
+        )
 
 # if __name__ == "__main__":
 #     run()

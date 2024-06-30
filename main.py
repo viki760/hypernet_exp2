@@ -1,10 +1,11 @@
+from copy import deepcopy
 import logging
 from os import path
 import os
 
 from argparse import Namespace
 
-from typing import Optional
+from typing import List, Optional
 
 import hydra
 from tqdm.contrib.logging import logging_redirect_tqdm
@@ -76,7 +77,7 @@ class LightningTransformer(L.LightningModule):
 
 
 
-def train(task_id, dataloader, task_embs, mnet, hnet):
+def train(args, task_id, dataloader, task_embs, mnet, hnet):
     pass
 
     # param = hnet.parameters()
@@ -105,34 +106,65 @@ def train(task_id, dataloader, task_embs, mnet, hnet):
     #     ######################
     # ### Start training ###
     # ######################
+    prev_hnet = deepcopy(hnet)
+    task_criterion = nn.CrossEntropyLoss()
+
+    hnet_optimizer = optim.SGD(hnet.parameters())
+
+    task_embs: List[torch.Tensor]
 
     for epoch in range(3):
         for images, labels in dataloader:
+            
+            images = images.to(args.cfg.device)
+            labels = labels.to(args.cfg.device)
 
             print(images.shape)
             print(labels.shape)
             print(labels.unique())
 
-            # break
+
+            # get delta_theta (candidate update)
+            current_emb = task_embs[task_id].detach()
+            trial_hnet = deepcopy(hnet)
+            trial_hnet_optimizer = optim.SGD(trial_hnet.parameters())
+            trial_weights = trial_hnet(current_emb)
+            trial_Y_hat_logits = mnet(images, weights=trial_weights) 
+
+            trial_loss_task = task_criterion(trial_Y_hat_logits, labels)
+            trial_loss_task.backward()
+
+            trial_hnet_optimizer.step()
+
+            #!!!!!!!!!!!!!!!!!!!!!!! TODO!!!!!!!!!!!!!!!!!!!
+            # compute reg loss
+            hnet.eval()
+            loss_reg = 0
+            
+            for i in range(task_id):
+                weights_i_prev = prev_hnet(task_embs[i])
+
+                weights_i = hnet(task_embs[i])
+                loss_reg += (weights_i - weights_i_prev).pow(2).sum()
+
+
+            # compute task loss
+            hnet.train()
+
+            hnet_optimizer.zero_grad()
 
             weights = hnet(task_embs[task_id])
             Y_hat_logits = mnet(images, weights=weights)
-            print(Y_hat_logits.shape)
-            break
+            loss_task = task_criterion(Y_hat_logits, labels)
 
-        # # if config.soft_targets:
+            beta = args.cfg.beta if args.cfg.beta is not None else 0.2
 
-        #     task_criterion = nn.CrossEntropyLoss()
-
-        #     loss_task = task_criterion(Y_hat_logits, labels)
-
-            loss_task.backward(retain_graph=calc_reg, create_graph=calc_reg and \
-                           config.backprop_dt)
-                
+            loss = loss_task + beta * loss_reg
+            loss.backward()
             # The current task embedding only depends in the task loss, so we can
             # update it already.
-            if emb_optimizer is not None:
-                emb_optimizer.step()
+
+            hnet_optimizer.step()
 
         #     dTheta = opstep.calc_delta_theta(theta_optimizer, False,
         #         lr=config.lr, detach_dt=not config.backprop_dt)
@@ -148,10 +180,6 @@ def train(task_id, dataloader, task_embs, mnet, hnet):
         #         mnet=mnet, inds_of_out_heads=regged_outputs,
         #         prev_theta=prev_theta, prev_task_embs=prev_task_embs,
         #         batch_size=config.cl_reg_batch_size)
-
-            loss_reg *= config.beta
-
-            loss_reg.backward()
 
         #     # Now that we computed the regularizer, we can use the accumulated
         #     # gradients and update the hnet (or mnet) parameters.
@@ -200,6 +228,7 @@ def run(args: Namespace):
         #     hnet.get_task_emb(j).data = last_emb
 
         train(
+            args=args,
             task_id=i,
             dataloader=dm.train_dataloader(),
             task_embs=task_embs,

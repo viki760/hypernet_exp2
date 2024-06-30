@@ -126,13 +126,13 @@ def train(task_id, dataloader, task_embs, mnet, hnet):
 
         #     loss_task = task_criterion(Y_hat_logits, labels)
 
-        #     loss_task.backward(retain_graph=calc_reg, create_graph=calc_reg and \
-        #                    config.backprop_dt)
+            loss_task.backward(retain_graph=calc_reg, create_graph=calc_reg and \
+                           config.backprop_dt)
                 
-        #     # The current task embedding only depends in the task loss, so we can
-        #     # update it already.
-        #     if emb_optimizer is not None:
-        #         emb_optimizer.step()
+            # The current task embedding only depends in the task loss, so we can
+            # update it already.
+            if emb_optimizer is not None:
+                emb_optimizer.step()
 
         #     dTheta = opstep.calc_delta_theta(theta_optimizer, False,
         #         lr=config.lr, detach_dt=not config.backprop_dt)
@@ -149,9 +149,9 @@ def train(task_id, dataloader, task_embs, mnet, hnet):
         #         prev_theta=prev_theta, prev_task_embs=prev_task_embs,
         #         batch_size=config.cl_reg_batch_size)
 
-        #     loss_reg *= config.beta
+            loss_reg *= config.beta
 
-        #     loss_reg.backward()
+            loss_reg.backward()
 
         #     # Now that we computed the regularizer, we can use the accumulated
         #     # gradients and update the hnet (or mnet) parameters.

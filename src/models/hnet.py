@@ -5,15 +5,6 @@ import numpy as np
 
 from argparse import Namespace
 
-target_param_shape = [
-    [2, 2],
-    [3, 3]
-]
-
-
-task_emb_dim = 8
-num_tasks = 2
-
 
 def get_hnet_model(args:Namespace, mnet:nn.Module):
     # device = args.device
@@ -36,8 +27,7 @@ def get_hnet_model(args:Namespace, mnet:nn.Module):
     # https://stackoverflow.com/questions/54746829/pytorch-whats-the-difference-between-state-dict-and-parameters
     # state_dict  contains not just the call to parameters but also buffers, etc.
 
-    model = MLP(output_shape=mnet_shape, task_emb_dim=args.cfg.task_emb_dim, layers=[2, 3])
-    # .to(device)
+    model = MLP(output_shape=mnet_shape, task_emb_dim=args.cfg.task_emb_dim).to(args.cfg.device)
 
     return model
 
@@ -49,26 +39,26 @@ class MLP(torch.nn.Module):
         self.output_shape = output_shape
 
         _layers = [task_emb_dim] + layers
-        self.fc_list = nn.ModuleList(
-            [
+        self.fc_list = [
                 nn.Linear(_layers[i], _layers[i+1]) 
              for i in range(len(_layers)-1)
             ]
-        )
 
         self.output_layers = [
-            torch.nn.Linear(100, np.prod(dims))
+            torch.nn.Linear(_layers[-1], np.prod(dims))
             for dims in output_shape
         ]
 
 
-
     def forward(self, task_emb):
-        x = F.relu(self.fc_list(task_emb))
+        # x = F.relu(self.fc_list(task_emb))
+        x = task_emb.unsqueeze(0)
+        for fc_layer in self.fc_list:
+            x = fc_layer(x)
 
         outputs = []
-        for layer, dims in zip(self.output_layers, target_param_shape):
-            res = layer(x).view(-1, *dims)
+        for layer, dims in zip(self.output_layers, self.output_shape):
+            res = layer(x).view(*dims)
             outputs.append(res)
 
         return outputs

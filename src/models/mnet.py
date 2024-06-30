@@ -27,10 +27,8 @@ def get_mnet_model(args):
 
     # mnet =  get_mnet_model(config, net_type, in_shape, out_shape, device,
     #                               no_weights=no_weights)
-
     # init_network_weights(mnet.weights, config, logger, net=mnet)
-
-    nn.init.xavier_uniform_
+    # nn.init.xavier_uniform_
     
     return mnet
 

@@ -130,17 +130,15 @@ def train(args, task_id, dataloader, task_embs, mnet, hnet):
             current_emb = task_embs[task_id]
             with torch.no_grad():
                 # trial_hnet = deepcopy(hnet)
-                trial_hnet = hnet
+                trial_hnet = get_hnet_model(args, mnet)
+                trial_hnet.load_state_dict(hnet.state_dict())
             trial_hnet.train()
             trial_hnet_optimizer = optim.SGD(trial_hnet.parameters())
-
             trial_hnet_optimizer.zero_grad()
 
             trial_weights = trial_hnet(current_emb)
             trial_Y_hat_logits = mnet(images, weights=trial_weights) 
-
             trial_loss_task = task_criterion(trial_Y_hat_logits, labels)
-            trial_loss_task.retain_grad()
             trial_loss_task.backward()
 
             trial_hnet_optimizer.step()
@@ -148,29 +146,34 @@ def train(args, task_id, dataloader, task_embs, mnet, hnet):
 
             # compute reg loss
             loss_reg = 0
-            
-            trial_hnet_optimizer.zero_grad()
             for i in range(task_id):
-                weights_i_prev = prev_hnet(task_embs[i])
+                with torch.no_grad():
+                    weights_i_prev = prev_hnet(task_embs[i])
 
                 weights_i = trial_hnet(task_embs[i])
-                loss_reg += (weights_i - weights_i_prev).pow(2).sum()
+                # weight is a dict!!
+                # loss_reg += (weights_i - weights_i_prev).pow(2).sum()
+                for key in weights_i.keys():
+                    loss_reg += (weights_i[key] - weights_i_prev[key]).pow(2).sum()
 
-            # update hnet
-            hnet_optimizer.zero_grad()
+            with torch.autograd.set_detect_anomaly(True):
+                # update hnet
+                weights = hnet(current_emb)
+                Y_hat_logits = mnet(images, weights=weights)
+                loss_task = task_criterion(Y_hat_logits, labels)
 
-            weights = hnet(task_embs[task_id])
-            Y_hat_logits = mnet(images, weights=weights)
-            loss_task = task_criterion(Y_hat_logits, labels)
+                loss: torch.Tensor = loss_task + args.cfg.beta * loss_reg
+                # loss = ( args.cfg.beta * loss_reg / loss_task + 1 ) * loss_task
 
-            loss = loss_task + args.cfg.beta * loss_reg
-            loss.retain_grad()
-            loss.backward(retain_graph=True)
+                trial_hnet_optimizer.zero_grad()
+                hnet_optimizer.zero_grad()
 
-            for param, trial_param in zip(hnet.parameters(), trial_hnet.parameters()):
-                param.grad += trial_param.grad
+                loss.retain_grad()
+                loss.backward()
+                for param, trial_param in zip(hnet.parameters(), trial_hnet.parameters()):
+                    param.grad += trial_param.grad
 
-            hnet_optimizer.step()
+                hnet_optimizer.step()
             break
         break
 
@@ -194,7 +197,7 @@ def run(args: Namespace):
     mnet = get_mnet_model(args)
     hnet = get_hnet_model(args, mnet)
 
-    task_embs = [torch.randn(args.cfg.task_emb_dim, requires_grad=True) for _ in range(args.cfg.num_tasks)]
+    task_embs = [torch.randn(args.cfg.task_emb_dim) for _ in range(args.cfg.num_tasks)]
 
     for idx in range(len(task_embs)):
         torch.nn.init.normal_(task_embs[idx], mean=0., std=1.)

@@ -17,7 +17,7 @@ def get_mnet_model(args):
     def _forward_func_with_outsoucing_weights(inputs, weights):
         def _backward_hook(grad, key, **kwargs):
             weight = weights[key]
-            print(f"backward_hook: {key} -- grad:{grad.shape} -- weight:{weight._version} -- param ver: {kwargs["param"]._version}")
+            print(f'backward_hook: {key} -- grad:{grad.shape} -- weight:{weight._version} -- param ver: {kwargs["param"]._version}')
             weight.backward(gradient=grad, retain_graph=True)
             
         with torch.no_grad():

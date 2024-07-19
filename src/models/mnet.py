@@ -1,6 +1,7 @@
 import torchvision
 import torch.nn as nn
 import torch
+from functools import partial
 
 def get_mnet_model(args):
     num_outputs = args.cfg.num_classes
@@ -14,31 +15,22 @@ def get_mnet_model(args):
 
     _original_forward_func = resnet_model.forward
     def _forward_func_with_outsoucing_weights(inputs, weights):
-        # when `weights` is a list
-        # with torch.no_grad():
-        #     for weight, param in zip(weights, resnet_model.parameters()):
-        #         param.data = weight
-        #         param.grad_fn = weight.grad_fn
-
-                # param.copy_(weight)
-                # param = nn.Parameter(weight)
-
-        # still not copy grad_fn
-        # state_dict = self.state_dict()
-        # for key, value in weights.items():
-        #     state_dict[key] = value
-        # self.load_state_dict(state_dict)
-
+        def _backward_hook(grad, key, **kwargs):
+            weight = weights[key]
+            print(f"backward_hook: {key} -- grad:{grad.shape} -- weight:{weight._version} -- param ver: {kwargs["param"]._version}")
+            weight.backward(gradient=grad, retain_graph=True)
+            
         with torch.no_grad():
             param_dict = resnet_model.named_parameters()
-            for key, value in weights.items():
-                weight = weights[key]
-                param = param_dict[key]
-                
-                param.data = weight
-                param.grad_fn = weight.grad_fn
+            for key, param in param_dict:
+                param: nn.Parameter
+                weight: torch.Tensor
 
-        
+                weight = weights[key]
+                param.copy_(weight)
+                handle = param.register_hook(partial(_backward_hook, key=key, param=param))
+                print(f"customed forward: {key} -- param: {param.shape} -- weight: {weight.shape}")
+
         return _original_forward_func(inputs)
 
     resnet_model.forward = _forward_func_with_outsoucing_weights

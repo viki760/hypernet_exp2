@@ -112,6 +112,9 @@ def train(args, task_id, dataloader, task_embs, mnet, hnet):
     task_criterion = nn.CrossEntropyLoss()
 
     hnet_optimizer = optim.SGD(hnet.parameters())
+    mnet_optimizer = optim.SGD(mnet.parameters())
+    mnet_optimizer.zero_grad()
+    hnet_optimizer.zero_grad()
 
     task_embs: List[torch.Tensor]
 
@@ -139,12 +142,22 @@ def train(args, task_id, dataloader, task_embs, mnet, hnet):
             trial_weights = trial_hnet(current_emb)
             trial_Y_hat_logits = mnet(images, weights=trial_weights) 
             trial_loss_task = task_criterion(trial_Y_hat_logits, labels)
+
             trial_loss_task.backward()
 
             trial_hnet_optimizer.step()
-
+            del trial_Y_hat_logits, trial_weights
+            mnet_optimizer.zero_grad()
+            mnet._remove_all_hooks()
+            # for param in mnet.parameters():
+            #     if param._backward_hooks is not None:
+            #         for handle in param._backward_hooks.values():
+            #             handle.remove()
+            import gc
+            gc.collect()
 
             # compute reg loss
+            print("=========compute reg loss=============")
             loss_reg = 0
             for i in range(task_id):
                 with torch.no_grad():
@@ -156,24 +169,24 @@ def train(args, task_id, dataloader, task_embs, mnet, hnet):
                 for key in weights_i.keys():
                     loss_reg += (weights_i[key] - weights_i_prev[key]).pow(2).sum()
 
-            with torch.autograd.set_detect_anomaly(True):
-                # update hnet
-                weights = hnet(current_emb)
-                Y_hat_logits = mnet(images, weights=weights)
-                loss_task = task_criterion(Y_hat_logits, labels)
+            # with torch.autograd.set_detect_anomaly(True):
+            # update hnet
+            weights = hnet(current_emb)
+            Y_hat_logits = mnet(images, weights=weights)
+            loss_task = task_criterion(Y_hat_logits, labels)
 
-                loss: torch.Tensor = loss_task + args.cfg.beta * loss_reg
-                # loss = ( args.cfg.beta * loss_reg / loss_task + 1 ) * loss_task
+            loss: torch.Tensor = loss_task + args.cfg.beta * loss_reg
+            # loss = ( args.cfg.beta * loss_reg / loss_task + 1 ) * loss_task
 
-                trial_hnet_optimizer.zero_grad()
-                hnet_optimizer.zero_grad()
+            trial_hnet_optimizer.zero_grad(set_to_none=False)
+            hnet_optimizer.zero_grad()
+            mnet_optimizer.zero_grad()
 
-                loss.retain_grad()
-                loss.backward()
-                for param, trial_param in zip(hnet.parameters(), trial_hnet.parameters()):
-                    param.grad += trial_param.grad
+            loss.backward()
+            for param, trial_param in zip(hnet.parameters(), trial_hnet.parameters()):
+                param.grad += trial_param.grad
 
-                hnet_optimizer.step()
+            hnet_optimizer.step()
             break
         break
 

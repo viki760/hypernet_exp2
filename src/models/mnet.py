@@ -15,9 +15,11 @@ def get_mnet_model(args):
 
     _original_forward_func = resnet_model.forward
     def _forward_func_with_outsoucing_weights(inputs, weights):
+        _backward_hook_handles = []
         def _backward_hook(grad, key, **kwargs):
             weight = weights[key]
-            print(f'backward_hook: {key} -- grad:{grad.shape} -- weight:{weight._version} -- param ver: {kwargs["param"]._version}')
+            print(f'backward_hook: {key}')
+            # print(f'backward_hook: {key} -- grad:{grad.shape} -- weight:{weight._version} -- param ver: {kwargs["param"]._version}')
             weight.backward(gradient=grad, retain_graph=True)
             
         with torch.no_grad():
@@ -28,13 +30,19 @@ def get_mnet_model(args):
 
                 weight = weights[key]
                 param.copy_(weight)
-                handle = param.register_hook(partial(_backward_hook, key=key, param=param))
+                # _ = param.register_hook(partial(_backward_hook, key=key, param=param))
+                handle = param.register_hook(partial(_backward_hook, key=key))
+                _backward_hook_handles.append(handle)
                 print(f"customed forward: {key} -- param: {param.shape} -- weight: {weight.shape}")
 
+        setattr(resnet_model, '_backward_hook_handles', _backward_hook_handles)
         return _original_forward_func(inputs)
 
     resnet_model.forward = _forward_func_with_outsoucing_weights
 
+    setattr(resnet_model, '_remove_all_hooks', 
+            lambda: [handle.remove() for handle in resnet_model._backward_hook_handles]
+    )
     mnet = resnet_model.to(device)
 
     # mnet =  get_mnet_model(config, net_type, in_shape, out_shape, device,
